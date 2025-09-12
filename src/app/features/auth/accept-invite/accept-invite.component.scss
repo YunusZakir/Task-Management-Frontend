@@ -1,0 +1,80 @@
+@import '../login/login.component.scss';
+
+.accept-invite-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #2684ff, #0052cc);
+
+  .card {
+    background: white;
+    padding: 32px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    text-align: center;
+
+    h2 {
+      margin-bottom: 8px;
+      font-size: 24px;
+      color: #172b4d;
+    }
+
+    p {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 24px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 16px;
+      text-align: left;
+
+      label {
+        font-size: 13px;
+        font-weight: 500;
+        margin-bottom: 6px;
+        color: #172b4d;
+      }
+
+      input {
+        padding: 10px;
+        border: 1px solid #dfe1e6;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: 0.2s;
+        outline: none;
+
+        &:focus {
+          border-color: #2684ff;
+          box-shadow: 0 0 0 2px rgba(38, 132, 255, 0.2);
+        }
+      }
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #2684ff;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+
+      &:hover:not(:disabled) {
+        background: #0052cc;
+      }
+
+      &:disabled {
+        background: #dfe1e6;
+        cursor: not-allowed;
+      }
+    }
+  }
+}

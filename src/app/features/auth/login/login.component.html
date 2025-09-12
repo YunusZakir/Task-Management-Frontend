@@ -1,0 +1,14 @@
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="logo">TM</div>
+    <h1>Welcome back</h1>
+    <p class="subtitle">Sign in to your Task Board</p>
+    <form (ngSubmit)="submit()" class="form">
+      <label>Email</label>
+      <input name="email" [(ngModel)]="email" placeholder="you@example.com" autocomplete="email" />
+      <label>Password</label>
+      <input name="password" [(ngModel)]="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+      <button class="primary" type="submit">Login</button>
+    </form>
+  </div>
+</div>

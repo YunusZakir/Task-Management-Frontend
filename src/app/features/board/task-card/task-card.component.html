@@ -1,0 +1,9 @@
+<div class="task-card" cdkDrag>
+  <div class="title">{{ task.title }}</div>
+  <div class="assignee">{{ task.assignee?.name || task.assignee?.email || 'Unassigned' }}</div>
+
+  <div class="actions">
+    <button (click)="deleteTask.emit(task.id)">🗑</button>
+    <button (click)="assignTask.emit(task.id)">👤</button>
+  </div>
+</div>

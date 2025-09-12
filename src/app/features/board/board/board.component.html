@@ -1,0 +1,112 @@
+<nav class="navbar">
+  <div class="brand">
+    <span class="logo">TM</span>
+    <strong>Task Management</strong>
+  </div>
+  <div class="nav-actions">
+
+    <!-- Logout -->
+    <button class="btn ghost" (click)="logout()">Logout</button>
+  </div>
+</nav>
+
+<div class="toolbar">
+  <div class="left">
+    <strong>Board</strong>
+  </div>
+  <div class="center">
+    <input placeholder="Filter by assignee" [(ngModel)]="assigneeFilter" (input)="load()" />
+    <div class="assignee-toolbar" *ngIf="uniqueAssignees().length">
+      <span class="chip" *ngFor="let u of uniqueAssignees()" (click)="filterByUser(u)" [title]="u.name || u.email">
+        {{ initialsOf(u) }}
+      </span>
+    </div>
+  </div>
+  <div class="right">
+    <div class="inline-group" *ngIf="isAdmin">
+      <input type="email" placeholder="Invite user email" [(ngModel)]="inviteEmail" (keyup.enter)="inviteUser()" />
+      <button class="btn success" (click)="inviteUser()">Invite</button>
+      <span class="copied" *ngIf="inviteCopied">Invite link copied</span>
+    </div>
+  </div>
+  </div>
+
+<div class="board-rail">
+  <button class="scroll-btn left" (click)="scrollBoard(-400)" aria-label="Scroll left">
+    <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+  </button>
+  <div class="board" cdkDropListOrientation="horizontal" cdkDropList [cdkDropListData]="columns" (cdkDropListDropped)="dropColumn($event)" [@listStagger]>
+  <div class="column" *ngFor="let col of columns; let i = index; trackBy: trackByColumn" [@itemAnim]>
+    <div class="column-header" cdkDrag>
+      <h3 [attr.contenteditable]="isAdmin ? true : null" (blur)="isAdmin ? api.updateColumn(col.id, { title: $any($event.target).innerText }).subscribe() : null">{{ col.title }}</h3>
+      <div class="col-actions">
+        <span class="count">{{ col.tasks.length || 0 }}</span>
+        <button class="icon-btn danger" *ngIf="isAdmin" (click)="removeColumn(col.id)" title="Delete column">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 7h12l-1 13H7L6 7zm9.5-3L14 3H10L8.5 4H4v2h16V4h-4.5z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="tasks" cdkDropList [cdkDropListConnectedTo]="getConnectedLists()" [id]="'list-' + col.id" [cdkDropListData]="col.tasks" (cdkDropListDropped)="dropTask($event, col)" cdkDropListSortingDisabled="false" [@listStagger]>
+      <div class="task" *ngFor="let t of col.tasks; trackBy: trackByTask" cdkDrag cdkDragPreviewClass="drag-preview" cdkDragPlaceholderClass="drag-placeholder" [@itemAnim]>
+        <div class="title" [attr.contenteditable]="isAdmin ? true : null" (blur)="isAdmin ? api.updateTask(t.id, { title: $any($event.target).innerText }).subscribe() : null">{{ t.title }}</div>
+        <div class="assignee">
+          <ng-container *ngIf="t.assignees?.length; else unassigned">
+            <span class="chip name-toggle" *ngFor="let u of t.assignees" [attr.data-name]="u.name || u.email" [title]="u.name || u.email">
+              {{ initialsOf(u) }}
+            </span>
+          </ng-container>
+          <ng-template #unassigned>Unassigned</ng-template>
+        </div>
+        <div class="actions">
+          <button class="icon-btn danger" *ngIf="isAdmin" (click)="deleteTask(t.id)" title="Delete task">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 7h12l-1 13H7L6 7zm9.5-3L14 3H10L8.5 4H4v2h16V4h-4.5z"/></svg>
+          </button>
+          <button class="icon-btn" *ngIf="isAdmin" (click)="toggleAssignMenu(t.id)" title="Assign">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12a5 5 0 100-10 5 5 0 000 10zm-9 9a9 9 0 1118 0H3z"/></svg>
+          </button>
+        </div>
+        <div class="assign-menu" *ngIf="showAssigneeFor === t.id">
+          <div class="assign-row" (click)="clearAssignees(t.id)">
+            <span class="avatar">?</span>
+            <span>Unassigned</span>
+          </div>
+          <div class="assign-row" *ngFor="let u of users" (click)="toggleAssignee(t.id, u.id)" [class.active]="hasSelected(t.id, u.id)">
+            <span class="avatar">{{ (u.name || u.email).slice(0,1).toUpperCase() }}</span>
+            <span>{{ u.name || u.email }}</span>
+          </div>
+          <div class="assign-actions">
+            <button class="btn primary" (click)="applyAssignees(t.id)">Apply</button>
+            <button class="btn ghost" (click)="showAssigneeFor = null">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div class="inline-group add-task" *ngIf="isAdmin">
+        <ng-container *ngIf="addingTaskFor === col.id; else addTaskButton">
+          <input [id]="'add-task-input-' + col.id" placeholder="Task title" [(ngModel)]="newTaskTitle[col.id]" (keyup.enter)="addTask(col.id)" />
+          <button class="btn primary" (click)="addTask(col.id)">Create</button>
+          <button class="btn ghost" (click)="cancelAddTask()">Cancel</button>
+        </ng-container>
+        <ng-template #addTaskButton>
+          <button class="btn" (click)="startAddTask(col.id)">+ Add task</button>
+        </ng-template>
+      </div>
+    </div>
+  </div>
+  <!-- Add column tile at the end (admin only) -->
+  <button *ngIf="isAdmin && !addingColumn" class="add-column-tile icon-only fixed" (click)="startAddColumn()" title="Add column">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M11 11V6h2v5h5v2h-5v5h-2v-5H6v-2z"/></svg>
+  </button>
+  <div *ngIf="isAdmin && addingColumn" class="add-column-form">
+    <input id="add-col-input" placeholder="Column name" [(ngModel)]="newColumnTitle" (keyup.enter)="addColumn()" />
+    <button class="btn primary" (click)="addColumn()">Create</button>
+    <button class="btn ghost" (click)="cancelAddColumn()">Cancel</button>
+  </div>
+  </div>
+  <button class="scroll-btn right" (click)="scrollBoard(400)" aria-label="Scroll right">
+    <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+  </button>
+</div>
+
+<footer class="footer">
+  <span>© {{ currentYear() }} Task Management</span>
+</footer>

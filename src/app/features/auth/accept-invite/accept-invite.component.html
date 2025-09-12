@@ -1,0 +1,14 @@
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="logo">TM</div>
+    <h1>Accept your invite</h1>
+    <p class="subtitle">Create your account to join the board</p>
+    <form (ngSubmit)="submit()" class="form">
+      <label>Name</label>
+      <input name="name" [(ngModel)]="name" placeholder="Jane Doe" autocomplete="name" />
+      <label>Password</label>
+      <input name="password" [(ngModel)]="password" type="password" placeholder="Create a password" autocomplete="new-password" />
+      <button class="primary" type="submit">Accept Invite</button>
+    </form>
+  </div>
+</div>

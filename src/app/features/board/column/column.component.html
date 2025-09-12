@@ -1,0 +1,22 @@
+<div class="column" cdkDrag>
+  <h3 contenteditable="true">{{ column.title }}</h3>
+
+  <div
+    class="tasks"
+    cdkDropList
+    [cdkDropListData]="column.tasks"
+    (cdkDropListDropped)="onDrop($event)"
+  >
+    <app-task-card
+      *ngFor="let t of column.tasks"
+      [task]="t"
+      (deleteTask)="deleteTask.emit($event)"
+      (assignTask)="assignTask.emit($event)"
+    >
+    </app-task-card>
+
+    <button class="add-task" (click)="addTask.emit(column.id)">
+      + Add task
+    </button>
+  </div>
+</div>
