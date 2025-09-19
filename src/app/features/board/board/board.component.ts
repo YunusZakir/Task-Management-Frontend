@@ -3,13 +3,14 @@ import { trigger, transition, style, animate, query, stagger } from '@angular/an
 import { DragDropModule, CdkDragDrop, moveItemInArray, transferArrayItem } from '@angular/cdk/drag-drop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, ColumnDto, TaskDto, UserDto } from '../../../core/api.service';
+import { ApiService, ColumnDto, TaskDto, UserDto, CommentDto, HistoryDto } from '../../../core/api.service';
+import { ThemeToggleComponent } from '../../../core/components/theme-toggle/theme-toggle.component';
 import { AuthService } from '../../../core/auth.service';
 
 @Component({
   selector: 'app-board',
   standalone: true,
-  imports: [CommonModule, FormsModule, DragDropModule],
+  imports: [CommonModule, FormsModule, DragDropModule, ThemeToggleComponent],
   templateUrl: './board.component.html',
   styleUrl: './board.component.scss',
   animations: [
@@ -42,29 +43,377 @@ export class BoardComponent implements OnInit {
   inviteEmail = '';
   inviteCopied = false;
   newTaskTitle: Record<string, string> = {};
+  newTaskDescription: Record<string, string> = {};
+  newTaskDueDate: Record<string, string> = {};
+  newTaskPriority: Record<string, 'low' | 'medium' | 'high'> = {};
+  newTaskAssignees: Record<string, Set<string>> = {};
+  // Modal state
+  showTaskModal = false;
+  modalColumnId: string | null = null;
+  modalTitle = '';
+  modalDescription = '';
+  modalDueDate = '';
+  modalPriority: 'low' | 'medium' | 'high' = 'medium';
+  modalAssignees: Set<string> = new Set<string>();
+  // Multi-select helpers
+  modalAssigneesArray: string[] = [];
+  // Task details modal state
+  showTaskDetails = false;
+  selectedTask: TaskDto | null = null;
+  comments: CommentDto[] = [];
+  newComment = '';
+  activeDetailsTab: 'details' | 'comments' | 'history' = 'details';
+  history: HistoryDto[] = [];
+  // Inline editing fields
+  editTitle = '';
+  editDescription = '';
+  editPriority: 'low' | 'medium' | 'high' = 'medium';
+  editDueDate = '';
+  editLabels = '';
+  editAssignees: Set<string> = new Set<string>();
+  editAssigneesArray: string[] = [];
+  // Per-field edit flags (view mode by default)
+  isEditingTitle = false;
+  isEditingDescription = false;
+  isEditingPriority = false;
+  isEditingDueDate = false;
+  isEditingAssignees = false;
+  isEditingLabels = false;
+
+  // Search filter
+  searchText = '';
   addingColumn = false;
   addingTaskFor: string | null = null;
   showAssigneeFor: string | null = null;
   users: UserDto[] = [];
   loadingUsers = false;
   selectedAssignees: Record<string, Set<string>> = {};
+  // Toolbar filter highlight
+  selectedFilterUserId: string | null = null;
+  // Toolbar avatar pagination
+  avatarShowCount = 5;
   expandedChip: { taskId: string; userId: string } | null = null;
-  theme: 'light' | 'dark' = (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
-
+  // UI-only starred tasks (persisted locally)
+  private starred = new Set<string>();
   ngOnInit() {
   this.load();
   try {
     const u = JSON.parse(localStorage.getItem('user') || 'null');
     this.isAdmin = !!u?.isAdmin;
   } catch {}
-  document.body.classList.remove('light', 'dark');
-  document.body.classList.add(this.theme);
+  // Preload users for assignee selection when adding tasks
+  this.loadingUsers = true;
+  this.api.listUsers().subscribe({
+    next: (u) => (this.users = u),
+    error: () => {},
+    complete: () => (this.loadingUsers = false),
+  });
+  // Load starred ids from localStorage
+  try {
+    const raw = localStorage.getItem('starredTasks');
+    const arr: string[] = raw ? JSON.parse(raw) : [];
+    this.starred = new Set<string>(Array.isArray(arr) ? arr : []);
+  } catch {}
 }
 
   load() {
     this.api
       .getBoard(this.assigneeFilter ? { assignee: this.assigneeFilter } : undefined)
       .subscribe((cols) => (this.columns = cols));
+  }
+
+  // Toolbar avatar helpers
+  visibleUsers(): UserDto[] {
+    return (this.users || []).slice(0, this.avatarShowCount);
+  }
+  moreUsersCount(): number {
+    const total = this.users?.length || 0;
+    return total > this.avatarShowCount ? (total - this.avatarShowCount) : 0;
+  }
+  showMoreAvatars() {
+    const total = this.users?.length || 0;
+    if (this.avatarShowCount < total) {
+      this.avatarShowCount = Math.min(total, this.avatarShowCount + 5);
+    }
+  }
+
+  openTaskDetails(task: TaskDto) {
+    this.selectedTask = task;
+    this.showTaskDetails = true;
+    this.newComment = '';
+    this.comments = [];
+    this.activeDetailsTab = 'details';
+    this.loadComments(task.id);
+    this.history = [];
+
+    // Seed inline-editing fields
+    this.editTitle = task.title;
+    this.editDescription = task.description || '';
+    this.editPriority = (task.priority || 'medium') as any;
+    this.editDueDate = task.dueDate || '';
+    this.editLabels = task.labels || '';
+    this.editAssignees = new Set<string>((task.assignees || []).map(a => a.id));
+    this.editAssigneesArray = Array.from(this.editAssignees);
+    this.isEditingTitle = false;
+    this.isEditingDescription = false;
+    this.isEditingPriority = false;
+    this.isEditingDueDate = false;
+    this.isEditingAssignees = false;
+    this.isEditingLabels = false;
+  }
+
+  closeTaskDetails() {
+    this.showTaskDetails = false;
+    this.selectedTask = null;
+    this.newComment = '';
+    this.comments = [];
+  }
+
+  loadComments(taskId: string) {
+    this.api.listComments(taskId).subscribe({ next: (c) => (this.comments = c) });
+  }
+
+  postComment() {
+    if (!this.selectedTask) return;
+    const content = this.newComment.trim();
+    if (!content) return;
+    this.api.addComment(this.selectedTask.id, content).subscribe((c) => {
+      this.comments.push(c);
+      this.newComment = '';
+    });
+  }
+
+  getAssigneesLabel(task: TaskDto | null | undefined): string {
+    if (!task || !task.assignees || task.assignees.length === 0) return 'Unassigned';
+    return task.assignees
+      .map((a) => (a.name && a.name.trim().length ? a.name : a.email))
+      .join(', ');
+  }
+
+  setDetailsTab(tab: 'details' | 'comments' | 'history') {
+    this.activeDetailsTab = tab;
+    if (tab === 'comments' && this.selectedTask && this.comments.length === 0) {
+      this.loadComments(this.selectedTask.id);
+    }
+    if (tab === 'history' && this.selectedTask && this.history.length === 0) {
+      this.loadHistory(this.selectedTask.id);
+    }
+  }
+
+  hasNewTaskAssignee(columnId: string, userId: string): boolean {
+    const set = this.newTaskAssignees[columnId];
+    return !!set && set.has(userId);
+  }
+
+  onCommentKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      this.postComment();
+    }
+  }
+
+  loadHistory(taskId: string) {
+    this.api.listHistory(taskId).subscribe({ next: (h) => (this.history = h) });
+  }
+
+  // Inline save methods
+  saveTitle() {
+    if (!this.selectedTask) return;
+    const title = this.editTitle.trim() || 'Untitled';
+    this.api.updateTask(this.selectedTask.id, { title }).subscribe(t => {
+      this.selectedTask!.title = t.title;
+      this.syncTaskInBoard(t);
+      this.isEditingTitle = false;
+    });
+  }
+
+  saveDescription() {
+    if (!this.selectedTask) return;
+    const description = this.editDescription.trim();
+    this.api.updateTask(this.selectedTask.id, { description }).subscribe(t => {
+      this.selectedTask!.description = t.description;
+      this.syncTaskInBoard(t);
+      this.isEditingDescription = false;
+    });
+  }
+
+  startEditTitle() { this.isEditingTitle = true; setTimeout(()=>document.getElementById('edit-title-input')?.focus(), 0); }
+  cancelEditTitle() { this.isEditingTitle = false; this.editTitle = this.selectedTask?.title || ''; }
+  onTitleKey(e: KeyboardEvent) { if (e.key === 'Enter') this.saveTitle(); if (e.key === 'Escape') this.cancelEditTitle(); }
+
+  startEditDescription() { this.isEditingDescription = true; setTimeout(()=>document.getElementById('edit-desc-input')?.focus(), 0); }
+  cancelEditDescription() { this.isEditingDescription = false; this.editDescription = this.selectedTask?.description || ''; }
+
+  savePriority() {
+    if (!this.selectedTask) return;
+    const priority = this.editPriority;
+    this.api.updateTask(this.selectedTask.id, { priority }).subscribe(t => {
+      this.selectedTask!.priority = t.priority;
+      this.syncTaskInBoard(t);
+      this.isEditingPriority = false;
+    });
+  }
+
+  saveDueDate() {
+    if (!this.selectedTask) return;
+    const dueDate = this.editDueDate || null;
+    this.api.updateTask(this.selectedTask.id, { dueDate }).subscribe(t => {
+      this.selectedTask!.dueDate = t.dueDate || null;
+      this.syncTaskInBoard(t);
+      this.isEditingDueDate = false;
+    });
+  }
+
+  saveLabels() {
+    if (!this.selectedTask) return;
+    const labels = this.editLabels.trim() || '';
+    this.api.updateTask(this.selectedTask.id, { labels }).subscribe(t => {
+      this.selectedTask!.labels = t.labels || '';
+      this.syncTaskInBoard(t);
+      this.isEditingLabels = false;
+    });
+  }
+
+  toggleEditAssignee(userId: string, ev: Event) {
+    const input = ev.target as HTMLInputElement | null;
+    if (!input || !this.selectedTask) return;
+    if (input.checked) this.editAssignees.add(userId); else this.editAssignees.delete(userId);
+  }
+
+  saveAssignees() {
+    if (!this.selectedTask) return;
+    const assigneeIds = Array.from(this.editAssigneesArray || []);
+    this.api.updateTask(this.selectedTask.id, { assigneeIds }).subscribe(t => {
+      this.selectedTask!.assignees = t.assignees;
+      this.syncTaskInBoard(t);
+      this.isEditingAssignees = false;
+    });
+  }
+
+  startEditPriority() { this.isEditingPriority = true; }
+  cancelEditPriority() { this.isEditingPriority = false; this.editPriority = (this.selectedTask?.priority || 'medium') as any; }
+
+  startEditDueDate() { this.isEditingDueDate = true; }
+  cancelEditDueDate() { this.isEditingDueDate = false; this.editDueDate = this.selectedTask?.dueDate || ''; }
+
+  startEditAssignees() {
+    this.isEditingAssignees = true;
+    this.editAssigneesArray = Array.from((this.selectedTask?.assignees || []).map(a=>a.id));
+  }
+  cancelEditAssignees() {
+    this.isEditingAssignees = false;
+    this.editAssigneesArray = Array.from((this.selectedTask?.assignees || []).map(a=>a.id));
+  }
+
+  startEditLabels() { this.isEditingLabels = true; }
+  cancelEditLabels() { this.isEditingLabels = false; this.editLabels = this.selectedTask?.labels || ''; }
+
+  private syncTaskInBoard(updated: TaskDto) {
+    // Update task in columns array for immediate UI reflect
+    for (const col of this.columns) {
+      const idx = col.tasks.findIndex(x => x.id === updated.id);
+      if (idx >= 0) {
+        col.tasks[idx] = { ...col.tasks[idx], ...updated } as any;
+        break;
+      }
+    }
+  }
+
+  matchesFilter(t: TaskDto): boolean {
+    const q = this.searchText.trim().toLowerCase();
+    if (!q) return true;
+    const labels = (t.labels || '').toLowerCase();
+    const title = (t.title || '').toLowerCase();
+    const desc = (t.description || '').toLowerCase();
+    return title.includes(q) || desc.includes(q) || labels.includes(q);
+  }
+
+  splitLabels(labels?: string | null): string[] {
+    if (!labels) return [];
+    return labels
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => !!s);
+  }
+
+  // History helpers
+  getUserNameById(id: string | null | undefined): string {
+    if (!id) return '';
+    const u = this.users.find((x) => x.id === id);
+    return (u?.name && u.name.trim().length ? u.name : u?.email) || id;
+  }
+
+  getColumnTitleById(id: string | null | undefined): string {
+    if (!id) return '';
+    const c = this.columns.find((x) => x.id === id);
+    return c?.title || id;
+  }
+
+  // Modal actions
+  submitTaskFromModal() {
+    if (!this.isAdmin || !this.modalColumnId) return;
+    const columnId = this.modalColumnId;
+    const title = (this.modalTitle || '').trim() || 'New Task';
+    const description = (this.modalDescription || '').trim();
+    const dueDate = this.modalDueDate || null;
+    const priority = this.modalPriority || 'medium';
+    const assigneeIds = Array.from(this.modalAssigneesArray || []);
+    const column = this.columns.find((c) => c.id === columnId)!;
+    const orderIndex = column.tasks.length;
+    this.api
+      .createTask({ title, description, orderIndex, columnId, priority, dueDate, assigneeIds })
+      .subscribe((task) => {
+        column.tasks.push(task);
+        this.showTaskModal = false;
+        this.modalColumnId = null;
+      });
+  }
+
+  onModalAssigneeToggle(userId: string, ev: Event) {
+    const input = ev.target as HTMLInputElement | null;
+    if (!input) return;
+    if (input.checked) this.modalAssignees.add(userId);
+    else this.modalAssignees.delete(userId);
+  }
+
+  // New checkbox handlers for array-based selection
+  onToggleModalAssignee(userId: string, ev: Event) {
+    const input = ev.target as HTMLInputElement | null;
+    if (!input) return;
+    const idx = this.modalAssigneesArray.indexOf(userId);
+    if (input.checked && idx === -1) {
+      this.modalAssigneesArray = [...this.modalAssigneesArray, userId];
+    } else if (!input.checked && idx !== -1) {
+      const next = [...this.modalAssigneesArray];
+      next.splice(idx, 1);
+      this.modalAssigneesArray = next;
+    }
+  }
+
+  onToggleEditAssignee(userId: string, ev: Event) {
+    const input = ev.target as HTMLInputElement | null;
+    if (!input) return;
+    const idx = this.editAssigneesArray.indexOf(userId);
+    if (input.checked && idx === -1) {
+      this.editAssigneesArray = [...this.editAssigneesArray, userId];
+    } else if (!input.checked && idx !== -1) {
+      const next = [...this.editAssigneesArray];
+      next.splice(idx, 1);
+      this.editAssigneesArray = next;
+    }
+  }
+
+  // Allow selecting multiple items in <select multiple> without holding Ctrl/Command
+  onEditAssigneeOptionMouseDown(e: MouseEvent, userId: string) {
+    e.preventDefault();
+    const idx = this.editAssigneesArray.indexOf(userId);
+    if (idx === -1) {
+      this.editAssigneesArray = [...this.editAssigneesArray, userId];
+    } else {
+      const next = [...this.editAssigneesArray];
+      next.splice(idx, 1);
+      this.editAssigneesArray = next;
+    }
   }
 
   getConnectedLists(): string[] {
@@ -95,8 +444,21 @@ export class BoardComponent implements OnInit {
   }
 
   filterByUser(u: UserDto | null) {
-    this.assigneeFilter = u ? (u.name || u.email || '') : '';
+    if (u && this.selectedFilterUserId === u.id) {
+      this.selectedFilterUserId = null;
+      this.assigneeFilter = '';
+    } else if (u) {
+      this.selectedFilterUserId = u.id;
+      this.assigneeFilter = (u.name || u.email || '');
+    } else {
+      this.selectedFilterUserId = null;
+      this.assigneeFilter = '';
+    }
     this.load();
+  }
+
+  isFilterUserActive(id: string): boolean {
+    return this.selectedFilterUserId === id;
   }
 
   toggleChipName(taskId: string, userId: string) {
@@ -113,16 +475,23 @@ export class BoardComponent implements OnInit {
     this.auth.logout();
   }
 
+  // Star helpers (UI-only)
+  isStarred(id: string): boolean {
+    return this.starred.has(id);
+  }
+
+  toggleStar(id: string, ev?: Event) {
+    if (ev) ev.stopPropagation();
+    if (this.starred.has(id)) this.starred.delete(id); else this.starred.add(id);
+    try {
+      localStorage.setItem('starredTasks', JSON.stringify(Array.from(this.starred)));
+    } catch {}
+  }
+
   currentYear(): number {
     return new Date().getFullYear();
   }
 
-toggleTheme() {
-  this.theme = this.theme === 'light' ? 'dark' : 'light';
-  localStorage.setItem('theme', this.theme);
-  document.body.classList.remove('light', 'dark');
-  document.body.classList.add(this.theme);
-}
 
   scrollBoard(delta: number) {
     const el = document.querySelector('.board') as HTMLElement | null;
@@ -228,28 +597,41 @@ toggleTheme() {
 
   startAddTask(columnId: string) {
     if (!this.isAdmin) return;
-    this.addingTaskFor = columnId;
-    setTimeout(() => {
-      const el = document.getElementById(`add-task-input-${columnId}`);
-      if (el) el.focus();
-    }, 0);
+    // Open modal instead of inline form
+    this.modalColumnId = columnId;
+    this.modalTitle = '';
+    this.modalDescription = '';
+    this.modalDueDate = '';
+    this.modalPriority = 'medium';
+    this.modalAssignees = new Set<string>();
+    this.modalAssigneesArray = [];
+    this.showTaskModal = true;
   }
 
-  cancelAddTask() {
+  cancelAddTask() {                                                                                                                                                                                                                                                                                                                                                      
     this.addingTaskFor = null;
+    this.showTaskModal = false;
+    this.modalColumnId = null;
   }
 
   addTask(columnId: string) {
     if (!this.isAdmin) return;
     const title = (this.newTaskTitle[columnId] || '').trim() || 'New Task';
-    const description = '';
+    const description = (this.newTaskDescription[columnId] || '').trim();
+    const dueDate = this.newTaskDueDate[columnId] || null;
+    const priority = this.newTaskPriority[columnId] || 'medium';
+    const assigneeIds = Array.from(this.newTaskAssignees[columnId] || []);
     const column = this.columns.find((c) => c.id === columnId)!;
     const orderIndex = column.tasks.length;
     this.api
-      .createTask({ title, description, orderIndex, columnId })
+      .createTask({ title, description, orderIndex, columnId, priority, dueDate, assigneeIds })
       .subscribe((task) => {
         column.tasks.push(task);
         this.newTaskTitle[columnId] = '';
+        this.newTaskDescription[columnId] = '';
+        this.newTaskDueDate[columnId] = '';
+        this.newTaskPriority[columnId] = 'medium';
+        this.newTaskAssignees[columnId] = new Set<string>();
         this.addingTaskFor = null;
       });
   }
@@ -261,5 +643,16 @@ toggleTheme() {
   removeColumn(id: string) {
     if (!this.isAdmin) return;
     this.api.deleteColumn(id).subscribe(() => this.load());
+  }
+
+  onAssigneeCheckboxChange(columnId: string, userId: string, event: Event) {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) return;
+    if (!this.newTaskAssignees[columnId]) this.newTaskAssignees[columnId] = new Set<string>();
+    if (input.checked) {
+      this.newTaskAssignees[columnId].add(userId);
+    } else {
+      this.newTaskAssignees[columnId].delete(userId);
+    }
   }
 }

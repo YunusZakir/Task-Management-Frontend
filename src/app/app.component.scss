@@ -1,0 +1,11 @@
+.theme-toggle-container {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 1000;
+  
+  @media (max-width: 768px) {
+    top: 1rem;
+    right: 1rem;
+  }
+}

@@ -1,7 +1,6 @@
 import { Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TaskDto } from '../../../core/api.service';
-
 @Component({
   selector: 'app-task-card',
   standalone: true,

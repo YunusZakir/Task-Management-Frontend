@@ -12,6 +12,7 @@ import { ColumnDto, TaskDto } from '../../../core/api.service';
   styleUrl: './column.component.scss'
 })
 export class ColumnComponent {
+[x: string]: any;
   @Input() column!: ColumnDto;
   @Output() dropTask = new EventEmitter<CdkDragDrop<TaskDto[]>>();
 }

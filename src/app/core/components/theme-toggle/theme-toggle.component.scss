@@ -1,0 +1,81 @@
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px; /* match .btn padding */
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--border-color); /* match .btn.ghost outline */
+  border-radius: 8px; /* match .btn radius */
+  background: transparent; /* match .btn.ghost background */
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: inherit; /* match .btn font size */
+  font-weight: 600; /* match .btn weight */
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+
+  &:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+  }
+
+  &:active { transform: translateY(0); }
+
+  &:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+  }
+}
+
+.theme-icon {
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.sun-icon {
+  color: var(--sun-color);
+  animation: rotate 20s linear infinite;
+}
+
+.moon-icon {
+  color: var(--moon-color);
+}
+
+.theme-text {
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// Hover animations
+.theme-toggle-btn:hover .sun-icon {
+  animation-duration: 2s;
+}
+
+.theme-toggle-btn:hover .moon-icon {
+  transform: rotate(-15deg);
+}
+
+// Responsive design
+@media (max-width: 768px) {
+  .theme-toggle-btn {
+    padding: 0.625rem 0.875rem;
+    font-size: 0.8rem;
+    
+    .theme-icon {
+      width: 18px;
+      height: 18px;
+    }
+  }
+}

@@ -4,7 +4,8 @@
     <strong>Task Management</strong>
   </div>
   <div class="nav-actions">
-
+    <!-- Theme toggle placed left of Logout -->
+    <app-theme-toggle></app-theme-toggle>
     <!-- Logout -->
     <button class="btn ghost" (click)="logout()">Logout</button>
   </div>
@@ -16,11 +17,14 @@
   </div>
   <div class="center">
     <input placeholder="Filter by assignee" [(ngModel)]="assigneeFilter" (input)="load()" />
-    <div class="assignee-toolbar" *ngIf="uniqueAssignees().length">
-      <span class="chip" *ngFor="let u of uniqueAssignees()" (click)="filterByUser(u)" [title]="u.name || u.email">
-        {{ initialsOf(u) }}
-      </span>
+    <div class="search-group">
+      <input placeholder="Search tasks (title, description, labels)" [(ngModel)]="searchText" />
+      <div class="assignee-toolbar avatar-group" *ngIf="users.length">
+        <span class="avatar overlap" *ngFor="let u of visibleUsers()" (click)="filterByUser(u)" [class.active]="isFilterUserActive(u.id)" [title]="u.name || u.email">{{ (u.name || u.email).slice(0,1).toUpperCase() }}</span>
+        <span class="avatar overlap more" *ngIf="moreUsersCount() > 0" (click)="showMoreAvatars()" [title]="moreUsersCount() + ' more'">+{{ moreUsersCount() }}</span>
+      </div>
     </div>
+    
   </div>
   <div class="right">
     <div class="inline-group" *ngIf="isAdmin">
@@ -31,6 +35,229 @@
   </div>
   </div>
 
+<!-- Task Details Drawer (Jira-like) -->
+<div class="modal-overlay" *ngIf="showTaskDetails" (click)="closeTaskDetails()">
+  <div class="modal details drawer" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3>{{ selectedTask?.title }}</h3>
+      <div class="tabs">
+        <button class="tab" [class.active]="activeDetailsTab==='details'" (click)="setDetailsTab('details')">Details</button>
+        <button class="tab" [class.active]="activeDetailsTab==='comments'" (click)="setDetailsTab('comments')">Comments</button>
+        <button class="tab" [class.active]="activeDetailsTab==='history'" (click)="setDetailsTab('history')">History</button>
+      </div>
+      <button class="icon-btn" aria-label="Close" (click)="closeTaskDetails()">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="modal-body details-body" [ngSwitch]="activeDetailsTab">
+      <!-- Details Tab -->
+      <div *ngSwitchCase="'details'" class="details-tab">
+        <div class="left-pane">
+          <div class="section" [class.editing]="isEditingTitle">
+            <h4>Title</h4>
+            <ng-container *ngIf="!isEditingTitle; else editTitleTpl">
+              <div [class.clickable]="isAdmin" (click)="isAdmin ? startEditTitle() : null" title="Click to edit">
+                <strong>{{ selectedTask?.title }}</strong>
+              </div>
+            </ng-container>
+            <ng-template #editTitleTpl>
+              <ng-container *ngIf="isAdmin">
+                <div class="form-field">
+                  <label for="edit-title-input">Title</label>
+                  <div class="input-with-icon">
+                    <svg class="leading-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.41l-2.34-2.34a1.003 1.003 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                    <input id="edit-title-input" class="input-title" [(ngModel)]="editTitle" placeholder="Task title" (keydown)="onTitleKey($event)" (blur)="saveTitle()" autofocus />
+                  </div>
+                </div>
+                <div class="edit-actions">
+                  <button class="btn primary" (click)="saveTitle()">Save</button>
+                  <button class="btn ghost" (click)="cancelEditTitle()">Cancel</button>
+                </div>
+              </ng-container>
+            </ng-template>
+          </div>
+          <div class="section" [class.editing]="isEditingDescription">
+            <h4>Description</h4>
+            <ng-container *ngIf="!isEditingDescription; else editDescTpl">
+              <div [class.clickable]="isAdmin" (click)="isAdmin ? startEditDescription() : null" title="Click to edit">
+                <p class="desc" *ngIf="selectedTask?.description; else noDesc">{{ selectedTask?.description }}</p>
+                <ng-template #noDesc><span class="muted">Add a description…</span></ng-template>
+              </div>
+            </ng-container>
+            <ng-template #editDescTpl>
+              <ng-container *ngIf="isAdmin">
+                <div class="form-field">
+                  <label for="edit-desc-input">Description</label>
+                  <div class="textarea-with-icon">
+                    <svg class="leading-icon top" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 3h18v2H3V3zm0 4h18v2H3V7zm0 8h18v2H3v-2zm0-4h18v2H3v-2zm0 8h18v2H3v-2z"/></svg>
+                    <textarea id="edit-desc-input" class="textarea-desc" [(ngModel)]="editDescription" placeholder="Add a description..." autofocus></textarea>
+                  </div>
+                </div>
+                <div class="edit-actions">
+                  <button class="btn primary" (click)="saveDescription()">Save</button>
+                  <button class="btn ghost" (click)="cancelEditDescription()">Cancel</button>
+                </div>
+              </ng-container>
+            </ng-template>
+          </div>
+        </div>
+        <div class="right-pane">
+          <div class="panel">
+            <h4>Details</h4>
+            <!-- Assignees -->
+            <div class="row assignees-row">
+              <span>Assignees</span>
+              <span>
+                <ng-container *ngIf="!isEditingAssignees; else editAssigneesTpl">
+                  <div [class.clickable]="isAdmin" (click)="isAdmin ? startEditAssignees() : null" title="Click to edit">
+                    {{ getAssigneesLabel(selectedTask) }}
+                  </div>
+                </ng-container>
+                <ng-template #editAssigneesTpl>
+                  <ng-container *ngIf="isAdmin">
+                    <div class="form-field assignees-field">
+                      <select multiple size="6" [(ngModel)]="editAssigneesArray">
+                        <option *ngFor="let u of users" [ngValue]="u.id" (mousedown)="onEditAssigneeOptionMouseDown($event, u.id)">{{ u.name || u.email }}</option>
+                      </select>
+                    </div>
+                    <div class="edit-actions">
+                      <button class="btn primary" (click)="saveAssignees()">Save</button>
+                      <button class="btn ghost" (click)="cancelEditAssignees()">Cancel</button>
+                    </div>
+                  </ng-container>
+                </ng-template>
+              </span>
+            </div>
+
+            <!-- Priority -->
+            <div class="row">
+              <span>Priority</span>
+              <span>
+                <ng-container *ngIf="!isEditingPriority; else editPriorityTpl">
+                  <div [class.clickable]="isAdmin" (click)="isAdmin ? startEditPriority() : null" title="Click to edit">
+                    <span class="badge" [ngClass]="selectedTask?.priority || 'medium'">{{ (selectedTask?.priority || 'medium') | titlecase }}</span>
+                  </div>
+                </ng-container>
+                <ng-template #editPriorityTpl>
+                  <ng-container *ngIf="isAdmin">
+                    <select [(ngModel)]="editPriority">
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                    <div class="edit-actions">
+                      <button class="btn" (click)="savePriority()">Save</button>
+                      <button class="btn ghost" (click)="cancelEditPriority()">Cancel</button>
+                    </div>
+                  </ng-container>
+                </ng-template>
+              </span>
+            </div>
+
+            <!-- Due date -->
+            <div class="row">
+              <span>Due date</span>
+              <span>
+                <ng-container *ngIf="!isEditingDueDate; else editDueTpl">
+                  <div [class.clickable]="isAdmin" (click)="isAdmin ? startEditDueDate() : null" title="Click to edit">
+                    {{ selectedTask?.dueDate ? (selectedTask?.dueDate | date:'mediumDate') : 'None' }}
+                  </div>
+                </ng-container>
+                <ng-template #editDueTpl>
+                  <ng-container *ngIf="isAdmin">
+                    <input type="date" [(ngModel)]="editDueDate" />
+                    <div class="edit-actions">
+                      <button class="btn" (click)="saveDueDate()">Save</button>
+                      <button class="btn ghost" (click)="cancelEditDueDate()">Cancel</button>
+                    </div>
+                  </ng-container>
+                </ng-template>
+              </span>
+            </div>
+
+            <!-- Labels -->
+            <div class="row">
+              <span>Labels</span>
+              <span>
+                <ng-container *ngIf="!isEditingLabels; else editLabelsTpl">
+                  <div [class.clickable]="isAdmin" (click)="isAdmin ? startEditLabels() : null" title="Click to edit">
+                    <ng-container *ngIf="selectedTask?.labels; else noLabels">
+                      <span class="badge" style="background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border-color);" *ngFor="let tag of splitLabels(selectedTask?.labels)">{{ tag }}</span>
+                    </ng-container>
+                    <ng-template #noLabels><span class="muted">None</span></ng-template>
+                  </div>
+                </ng-container>
+                <ng-template #editLabelsTpl>
+                  <ng-container *ngIf="isAdmin">
+                    <input placeholder="e.g. bug, frontend" [(ngModel)]="editLabels" />
+                    <div class="edit-actions">
+                      <button class="btn" (click)="saveLabels()">Save</button>
+                      <button class="btn ghost" (click)="cancelEditLabels()">Cancel</button>
+                    </div>
+                  </ng-container>
+                </ng-template>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comments Tab -->
+      <div *ngSwitchCase="'comments'" class="comments-tab">
+        <div class="comments">
+          <div class="comment" *ngFor="let c of comments">
+            <div class="meta">
+              <span class="avatar">{{ (c.author?.name || c.author?.email || '?').slice(0,1).toUpperCase() }}</span>
+              <span class="who">{{ c.author?.name || c.author?.email || 'Unknown' }}</span>
+              <span class="when">• {{ c.createdAt | date:'short' }}</span>
+            </div>
+            <div class="content">{{ c.content }}</div>
+          </div>
+        </div>
+        <div class="add-comment">
+          <textarea placeholder="Add a comment..." [(ngModel)]="newComment" (keydown)="onCommentKeydown($event)"></textarea>
+          <div class="actions">
+            <button class="btn primary" (click)="postComment()">Comment</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- History Tab -->
+      <div *ngSwitchCase="'history'" class="history-tab">
+        <div class="history-list">
+          <div class="history-item" *ngFor="let h of history">
+            <div class="meta">
+              <span class="avatar">{{ (h.actor?.name || h.actor?.email || '?').slice(0,1).toUpperCase() }}</span>
+              <span class="who">{{ h.actor?.name || h.actor?.email || 'Unknown' }}</span>
+              <span class="when">• {{ h.createdAt | date:'short' }}</span>
+            </div>
+            <div class="content">
+              <ng-container [ngSwitch]="h.action">
+                <span *ngSwitchCase="'create'">created this task</span>
+                <span *ngSwitchCase="'delete'">deleted this task</span>
+                <span *ngSwitchCase="'move'">moved task to column <strong>{{ getColumnTitleById(h.newValue) }}</strong></span>
+                <span *ngSwitchCase="'assign'">assigned user <strong>{{ getUserNameById(h.newValue) }}</strong></span>
+                <span *ngSwitchCase="'unassign'">unassigned user <strong>{{ getUserNameById(h.oldValue) }}</strong></span>
+                <span *ngSwitchDefault>
+                  <ng-container *ngIf="h.field === 'column'; else normalUpdate">
+                    updated <strong>column</strong> from "{{ getColumnTitleById(h.oldValue) }}" to "{{ getColumnTitleById(h.newValue) }}"
+                  </ng-container>
+                  <ng-template #normalUpdate>
+                    updated <strong>{{ h.field }}</strong> from "{{ h.oldValue }}" to "{{ h.newValue }}"
+                  </ng-template>
+                </span>
+              </ng-container>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn ghost" (click)="closeTaskDetails()">Close</button>
+    </div>
+  </div>
+</div>
 <div class="board-rail">
   <button class="scroll-btn left" (click)="scrollBoard(-400)" aria-label="Scroll left">
     <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
@@ -47,25 +274,55 @@
       </div>
     </div>
     <div class="tasks" cdkDropList [cdkDropListConnectedTo]="getConnectedLists()" [id]="'list-' + col.id" [cdkDropListData]="col.tasks" (cdkDropListDropped)="dropTask($event, col)" cdkDropListSortingDisabled="false" [@listStagger]>
-      <div class="task" *ngFor="let t of col.tasks; trackBy: trackByTask" cdkDrag cdkDragPreviewClass="drag-preview" cdkDragPlaceholderClass="drag-placeholder" [@itemAnim]>
-        <div class="title" [attr.contenteditable]="isAdmin ? true : null" (blur)="isAdmin ? api.updateTask(t.id, { title: $any($event.target).innerText }).subscribe() : null">{{ t.title }}</div>
-        <div class="assignee">
-          <ng-container *ngIf="t.assignees?.length; else unassigned">
-            <span class="chip name-toggle" *ngFor="let u of t.assignees" [attr.data-name]="u.name || u.email" [title]="u.name || u.email">
-              {{ initialsOf(u) }}
-            </span>
-          </ng-container>
-          <ng-template #unassigned>Unassigned</ng-template>
+      <ng-container *ngFor="let t of col.tasks; trackBy: trackByTask">
+      <div class="task" [ngClass]="t.priority || 'medium'" cdkDrag cdkDragPreviewClass="drag-preview" cdkDragPlaceholderClass="drag-placeholder" [@itemAnim] (click)="openTaskDetails(t)" *ngIf="matchesFilter(t)">
+        <!-- Header with avatar, title/subtitle, actions -->
+        <div class="card-header">
+          <div class="title-wrap">
+            <div class="title-row">
+              <div class="title" [attr.contenteditable]="isAdmin ? true : null" (blur)="isAdmin ? api.updateTask(t.id, { title: $any($event.target).innerText }).subscribe() : null">{{ t.title }}</div>
+            </div>
+            <div class="subtitle" *ngIf="t.description">{{ t.description }}</div>
+          </div>
+          <div class="header-actions">
+            <button class="icon-btn star-btn" [class.active]="isStarred(t.id)" (click)="toggleStar(t.id, $event)" title="Star">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+            </button>
+            <button class="icon-btn danger" *ngIf="isAdmin" (click)="$event.stopPropagation(); deleteTask(t.id)" title="Delete">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 7h12l-1 13H7L6 7zm9.5-3L14 3H10L8.5 4H4v2h16V4h-4.5z"/></svg>
+            </button>
+          </div>
         </div>
-        <div class="actions">
-          <button class="icon-btn danger" *ngIf="isAdmin" (click)="deleteTask(t.id)" title="Delete task">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 7h12l-1 13H7L6 7zm9.5-3L14 3H10L8.5 4H4v2h16V4h-4.5z"/></svg>
-          </button>
-          <button class="icon-btn" *ngIf="isAdmin" (click)="toggleAssignMenu(t.id)" title="Assign">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12a5 5 0 100-10 5 5 0 000 10zm-9 9a9 9 0 1118 0H3z"/></svg>
-          </button>
+
+        <!-- Meta rows like example card -->
+        <div class="meta-rows">
+          <div class="row">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z"/></svg>
+            <span class="muted">Task:</span>
+            <span class="pill" *ngIf="t.labels && splitLabels(t.labels).length; else noLabel">{{ splitLabels(t.labels)[0] }}</span>
+            <ng-template #noLabel><span class="pill">General</span></ng-template>
+          </div>
+          <div class="row">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7 2h2v2h6V2h2v2h3v16H4V4h3V2zm12 6H5v12h14V8zM7 10h5v5H7v-5z"/></svg>
+            <span class="muted">Date:</span>
+            <span>{{ t.dueDate ? (t.dueDate | date:'dd.MM.yyyy') : 'None' }}</span>
+          </div>
         </div>
-        <div class="assign-menu" *ngIf="showAssigneeFor === t.id">
+
+        <!-- Footer avatar group -->
+        <div class="card-footer">
+          <div class="footer-left">
+            <span class="priority-chip" [ngClass]="t.priority || 'medium'">{{ (t.priority || 'medium') | titlecase }}</span>
+          </div>
+          <div class="avatar-group">
+            <ng-container *ngFor="let u of (t.assignees | slice:0:4); let i = index">
+              <span class="avatar overlap" [title]="u.name || u.email">{{ (u.name || u.email).slice(0,1).toUpperCase() }}</span>
+            </ng-container>
+            <span *ngIf="(t.assignees?.length || 0) > 4" class="avatar overlap more" [title]="((t.assignees?.length || 0) - 4) + ' more'">+{{ (t.assignees?.length || 0) - 4 }}</span>
+          </div>
+        </div>
+
+        <div class="assign-menu" *ngIf="showAssigneeFor === t.id" (click)="$event.stopPropagation()">
           <div class="assign-row" (click)="clearAssignees(t.id)">
             <span class="avatar">?</span>
             <span>Unassigned</span>
@@ -80,31 +337,116 @@
           </div>
         </div>
       </div>
-      <div class="inline-group add-task" *ngIf="isAdmin">
+      </ng-container>
+    </div>
+    <div class="inline-group add-task" *ngIf="isAdmin">
         <ng-container *ngIf="addingTaskFor === col.id; else addTaskButton">
-          <input [id]="'add-task-input-' + col.id" placeholder="Task title" [(ngModel)]="newTaskTitle[col.id]" (keyup.enter)="addTask(col.id)" />
-          <button class="btn primary" (click)="addTask(col.id)">Create</button>
-          <button class="btn ghost" (click)="cancelAddTask()">Cancel</button>
+          <div class="add-task-form">
+            <div class="field" style="flex:1; min-width: 200px;">
+              <label>Task name</label>
+              <input [id]="'add-task-input-' + col.id" placeholder="e.g. Design homepage" [(ngModel)]="newTaskTitle[col.id]" />
+            </div>
+            <div class="field" style="flex:1; min-width: 260px;">
+              <label>Description</label>
+              <textarea placeholder="Optional" [(ngModel)]="newTaskDescription[col.id]"></textarea>
+            </div>
+            <div class="field">
+              <label>Due date</label>
+              <input type="date" [(ngModel)]="newTaskDueDate[col.id]" />
+            </div>
+            <div class="field">
+              <label>Priority</label>
+              <select [(ngModel)]="newTaskPriority[col.id]">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div class="field" style="min-width: 220px;">
+              <label>Assign</label>
+              <div>
+                <label *ngFor="let u of users" style="display:inline-flex; align-items:center; gap:6px; margin-right:10px;">
+                  <input type="checkbox" [checked]="hasNewTaskAssignee(col.id, u.id)" (change)="onAssigneeCheckboxChange(col.id, u.id, $event)" />
+                  {{ u.name || u.email }}
+                </label>
+              </div>
+            </div>
+            <div class="field" style="display:flex; gap:8px; align-items:flex-end;">
+              <button class="btn primary" (click)="addTask(col.id)">Create</button>
+              <button class="btn ghost" (click)="cancelAddTask()">Cancel</button>
+            </div>
+          </div>
         </ng-container>
         <ng-template #addTaskButton>
           <button class="btn" (click)="startAddTask(col.id)">+ Add task</button>
         </ng-template>
       </div>
     </div>
-  </div>
-  <!-- Add column tile at the end (admin only) -->
-  <button *ngIf="isAdmin && !addingColumn" class="add-column-tile icon-only fixed" (click)="startAddColumn()" title="Add column">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M11 11V6h2v5h5v2h-5v5h-2v-5H6v-2z"/></svg>
-  </button>
-  <div *ngIf="isAdmin && addingColumn" class="add-column-form">
-    <input id="add-col-input" placeholder="Column name" [(ngModel)]="newColumnTitle" (keyup.enter)="addColumn()" />
-    <button class="btn primary" (click)="addColumn()">Create</button>
-    <button class="btn ghost" (click)="cancelAddColumn()">Cancel</button>
-  </div>
+    <!-- Inline Add Column UI at end of board (admin only) -->
+    <div class="add-column-slot" *ngIf="isAdmin">
+      <button *ngIf="!addingColumn" class="add-column-tile icon-only fixed" (click)="startAddColumn()" title="Add column">
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M11 11V6h2v5h5v2h-5v5h-2v-5H6v-2z"/></svg>
+      </button>
+      <div *ngIf="addingColumn" class="add-column-inline">
+        <input id="add-col-input" placeholder="Column name" [(ngModel)]="newColumnTitle" (keyup.enter)="addColumn()" />
+        <div class="actions">
+          <button class="btn primary" (click)="addColumn()">Create</button>
+          <button class="btn ghost" (click)="cancelAddColumn()">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
   <button class="scroll-btn right" (click)="scrollBoard(400)" aria-label="Scroll right">
     <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
   </button>
+</div>
+
+<!-- Add Task Modal -->
+<div class="modal-overlay" *ngIf="showTaskModal" (click)="cancelAddTask()">
+  <div class="modal add-task-modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3>Create task</h3>
+      <button class="icon-btn" aria-label="Close" (click)="cancelAddTask()">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="modal-body add-task-form">
+      <div class="field" style="flex:1; min-width: 240px;">
+        <label>Task name</label>
+        <input placeholder="e.g. Design homepage" [(ngModel)]="modalTitle" />
+      </div>
+      <div class="field full" style="flex:1 1 100%; min-width: 320px;">
+        <label>Description</label>
+        <textarea placeholder="Add a description" [(ngModel)]="modalDescription"></textarea>
+      </div>
+      <div class="field">
+        <label>Due date</label>
+        <input type="date" [(ngModel)]="modalDueDate" />
+      </div>
+      <div class="field">
+        <label>Priority</label>
+        <select [(ngModel)]="modalPriority">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label>Assignees</label>
+        <div class="user-checklist">
+          <label *ngFor="let u of users" class="user-row">
+            <input type="checkbox" [checked]="modalAssigneesArray.includes(u.id)" (change)="onToggleModalAssignee(u.id, $event)" />
+            <span class="avatar small">{{ (u.name || u.email).slice(0,1).toUpperCase() }}</span>
+            <span class="name">{{ u.name || u.email }}</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn ghost" (click)="cancelAddTask()">Cancel</button>
+      <button class="btn primary" (click)="submitTaskFromModal()">Create</button>
+    </div>
+  </div>
 </div>
 
 <footer class="footer">

@@ -4,11 +4,14 @@
     <h1>Welcome back</h1>
     <p class="subtitle">Sign in to your Task Board</p>
     <form (ngSubmit)="submit()" class="form">
+      <div *ngIf="error" class="error-message">{{ error }}</div>
       <label>Email</label>
-      <input name="email" [(ngModel)]="email" placeholder="you@example.com" autocomplete="email" />
+      <input name="email" [(ngModel)]="email" placeholder="you@example.com" autocomplete="email" [disabled]="loading" />
       <label>Password</label>
-      <input name="password" [(ngModel)]="password" type="password" placeholder="••••••••" autocomplete="current-password" />
-      <button class="primary" type="submit">Login</button>
+      <input name="password" [(ngModel)]="password" type="password" placeholder="••••••••" autocomplete="current-password" [disabled]="loading" />
+      <button class="primary" type="submit" [disabled]="loading">
+        {{ loading ? 'Logging in...' : 'Login' }}
+      </button>
     </form>
   </div>
 </div>

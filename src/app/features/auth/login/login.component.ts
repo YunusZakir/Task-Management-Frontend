@@ -14,5 +14,27 @@ export class LoginComponent {
   private auth = inject(AuthService);
   email = '';
   password = '';
-  submit() { this.auth.login(this.email, this.password); }
+  error = '';
+  loading = false;
+
+  async submit() {
+    if (!this.email || !this.password) {
+      this.error = 'Please enter both email and password';
+      return;
+    }
+
+    this.loading = true;
+    this.error = '';
+    
+    try {
+      console.log('Attempting login with:', { email: this.email, password: '***' });
+      await this.auth.login(this.email, this.password);
+      console.log('Login successful');
+    } catch (error: any) {
+      console.error('Login failed:', error);
+      this.error = error?.error?.message || error?.message || 'Login failed. Please check your credentials.';
+    } finally {
+      this.loading = false;
+    }
+  }
 }
